@@ -1,0 +1,20 @@
+# Freddie Mac data — licensed for use, never for redistribution.
+/data/
+!/data/.gitkeep
+/docs/freddie-mac/
+*.zip
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
