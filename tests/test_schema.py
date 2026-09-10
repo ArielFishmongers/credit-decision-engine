@@ -9,8 +9,6 @@ to restore it.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -20,13 +18,7 @@ from cde.data.schema import (
     PERFORMANCE_COLUMNS,
     PERFORMANCE_NAMES,
 )
-
-REFERENCE = Path(__file__).resolve().parents[1] / "docs" / "freddie-mac"
-SAMPLES = REFERENCE / "Sample Files"
-
-requires_reference = pytest.mark.skipif(
-    not REFERENCE.is_dir(), reason="reference docs absent; run scripts/fetch_reference_docs.sh"
-)
+from tests.conftest import REFERENCE, SAMPLES, requires_reference
 
 
 def test_release_47_column_counts() -> None:
@@ -104,3 +96,74 @@ def test_loader_reads_the_format_example() -> None:
     assert not pd.api.types.is_numeric_dtype(status)
     assert status.map(type).eq(str).all()
     assert status.str.fullmatch(r"[0-9A-Z]+").all()
+
+
+# --- Release 47 enumerations -------------------------------------------------------
+# These come from general_user_guide_july_2026.pdf rather than the header files, which
+# carry column names only. A wrong code list here does not fail loudly: it silently
+# reclassifies defaults as censored observations.
+
+
+def test_zero_balance_groups_partition_the_enumeration() -> None:
+    """Every Release 47 zero-balance code must be classified exactly once.
+
+    An unclassified code would be silently swept into "still alive", overstating
+    survival; a double-classified one would be counted as both default and censored.
+    """
+    from cde.data.schema import (
+        ZERO_BALANCE_CODES,
+        ZERO_BALANCE_DEFAULT,
+        ZERO_BALANCE_INFORMATIVE_EXIT,
+        ZERO_BALANCE_PREPAID,
+    )
+
+    groups = [{ZERO_BALANCE_PREPAID}, set(ZERO_BALANCE_DEFAULT), set(ZERO_BALANCE_INFORMATIVE_EXIT)]
+    assert set().union(*groups) == set(ZERO_BALANCE_CODES)
+    assert sum(len(g) for g in groups) == len(ZERO_BALANCE_CODES), "codes overlap between groups"
+    assert set(ZERO_BALANCE_CODES) == {"01", "02", "03", "09", "15", "16", "96"}
+
+
+def test_third_party_sale_counts_as_a_credit_event() -> None:
+    """02 is a foreclosure-auction disposition, and Freddie Mac computes ACTUAL LOSS for
+    02, 03, 09 and 15. Pre-Release-47 write-ups commonly list only 03 and 09."""
+    from cde.data.schema import ZERO_BALANCE_DEFAULT
+
+    assert "02" in ZERO_BALANCE_DEFAULT
+
+
+def test_delinquency_threshold_cannot_be_a_bare_string_comparison() -> None:
+    """The reason DELINQUENCY_NON_NUMERIC exists.
+
+    "RA" is a default state and "XX" is missing data, but both sort above "03", so
+    ``status >= threshold`` alone would silently treat unknown status as 90+ DPD.
+    """
+    from cde.data.schema import DELINQUENCY_NON_NUMERIC, DELINQUENCY_NOT_AVAILABLE
+
+    assert all(value >= "03" for value in DELINQUENCY_NON_NUMERIC)
+    assert DELINQUENCY_NOT_AVAILABLE in DELINQUENCY_NON_NUMERIC
+
+
+def test_sentinel_keys_are_real_columns() -> None:
+    """A typo'd key would never fire, leaving 999s in a ratio and 9999s in a FICO."""
+    from cde.data.schema import NOT_AVAILABLE_SENTINELS
+
+    known = set(ORIGINATION_NAMES) | set(PERFORMANCE_NAMES)
+    assert set(NOT_AVAILABLE_SENTINELS) <= known
+
+
+@requires_reference
+def test_sentinels_actually_occur_in_the_format_example() -> None:
+    """Guards against a sentinel that is right in principle but wrong in width --
+    "999" versus "999.00", say. Only checks columns where the 1,000-row example
+    happens to contain a missing value, so it is a spot-check, not a proof."""
+    from cde.data.loader import read_origination
+    from cde.data.schema import NOT_AVAILABLE_SENTINELS
+
+    orig = read_origination(SAMPLES / "origination_sample_file.txt")
+    hits = {
+        column: int((orig[column] == sentinel).sum())
+        for column, sentinel in NOT_AVAILABLE_SENTINELS.items()
+        if column in orig.columns
+    }
+    assert hits["vantagescore_4_0"] > 0, "VantageScore 4.0 is new in Release 47 and mostly 9999"
+    assert any(count > 0 for count in hits.values())
