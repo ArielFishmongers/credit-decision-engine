@@ -1,3 +1,36 @@
+# CONTROL EXPERIMENT — the calm-to-calm arm. Do not treat as the project's config.
+#
+# WHY THIS EXISTS. The headline stage 3 result splits 2000-2004 against 2006-2008, which
+# straddles the housing crisis, so "the model under-predicts out of time" is close to
+# guaranteed by the split rather than discovered in it. That makes the measured -39.7%
+# NPV effect impossible to interpret on its own: it could be a regime effect specific to
+# a once-in-a-generation break, or it could be ordinary out-of-time drift that the crisis
+# merely amplifies. Those two readings imply completely different write-ups.
+#
+# So the same experiment is run again with the crisis removed from the comparison:
+#
+#     train 2000-2002   ->   test 2003-2004
+#
+# Everything else is copied from configs/default.yaml verbatim, EXCEPT the three inputs
+# that are measured from the training cohorts and would otherwise leak test-period
+# information into the control:
+#
+#     lgd                          0.1330 -> 0.1045   measured on 2000-2002
+#     loss_disposition_probability 0.3697 -> 0.3384   measured on 2000-2002
+#     recovery_lag_months              27 -> 26       certainty equivalent on 2000-2002
+#
+# HONEST LIMITATION OF THIS CONTROL, stated up front because it bounds what the
+# comparison can settle. At a 120-month horizon no cohort here is crisis-free: the 2004
+# vintage lives through 2004-2014 and meets the crash at ages 48-84, and even the
+# training cohorts meet it at ages 72-120. Measured severity confirms it -- effective LGD
+# is 0.1045 on 2000-2002 against 0.1557 on 2003-2004, already 1.49x worse. So this is not
+# calm-to-calm; it is *less* crisis-exposed-to-*more*. It therefore gives a LOWER BOUND on
+# how much of the headline effect is the regime break, not a clean separation.
+#
+# interim_dir points at data/interim_control, whose cde.duckdb is a symlink to the real
+# database. Same data, separate model and report files, so the control fit cannot
+# overwrite the one stage 3 quotes.
+
 # Every economic assumption lives here, never hard-coded, and every one is
 # sensitivity-tested. See PROJECT_PLAN.md section 10 for the open questions.
 
@@ -6,10 +39,10 @@ data:
   source: sample                 # sample | standard
   # Out-of-time split across the GFC. Resolved, open question 3 — see PROJECT_PLAN.md
   # section 10. 2005 is omitted deliberately as the ambiguous transition year.
-  train_vintages: [2000, 2001, 2002, 2003, 2004]
-  test_vintages: [2006, 2007, 2008]
+  train_vintages: [2000, 2001, 2002]
+  test_vintages: [2003, 2004]
   raw_dir: data/raw
-  interim_dir: data/interim
+  interim_dir: data/interim_control
 
 horizon:
   # Administrative censor, chosen from the data rather than from a target product.
@@ -227,7 +260,7 @@ economics:
   # which is 11.55 against a median of 0.50 because costs can dwarf a small balance.
   #
   # `cde lgd` re-measures and tests/test_lgd.py fails if this value drifts from the data.
-  lgd: 0.1330
+  lgd: 0.1045
 
   # P(loss disposition | 90+ DPD), measured on the TRAIN vintages only.
   #
@@ -248,7 +281,7 @@ economics:
   # as well, costing 11.8% of the leg against the 3.2% that is actually owed.
   #
   # `cde lgd` re-measures this and tests/test_lgd.py fails if it drifts.
-  loss_disposition_probability: 0.3697
+  loss_disposition_probability: 0.3384
 
   # Months between first 90+ DPD and the disposition that produces the recovery cash.
   #
@@ -274,7 +307,7 @@ economics:
   #
   # Nearly identical out of time: test median 19, mean 26.2. So this is one of the
   # few parameters that does NOT degrade across the crisis.
-  recovery_lag_months: 27
+  recovery_lag_months: 26
 
   servicing_cost_annual_bps: 35
 
@@ -350,37 +383,3 @@ calibration:
   # one, so a block's observed rate is either 0 or a spike -- noise, not a probability.
   # Set to 0 to disable the cap and reproduce the failure.
   isotonic_min_tail_rows: 1000
-
-decision:
-  # Stage 4 -- claim 3: the optimal approval cutoff is an economic quantity, not a
-  # statistical one. It sits where the marginal applicant's expected profit reaches
-  # zero, not where accuracy or F1 peaks.
-  #
-  # The experiment holds the SCORE fixed and varies only the CRITERION used to turn it
-  # into a cutoff. Every rule ranks applicants by the same predicted cumulative default
-  # probability from the same fitted hazard, so nothing about model quality differs
-  # between them and the comparison isolates the choice of criterion. Comparing a
-  # different *model* under each criterion is the stage 5 ablation and a different
-  # question.
-
-  # Months on book at which the binary target is defined, for the accuracy- and
-  # F1-maximising cutoffs. Those criteria need a yes/no outcome, and "defaulted at some
-  # point in ten years" is not what a lender is deciding about. 36 months is the
-  # conventional credit window and it is what PROJECT_PLAN.md section 5.5 specifies for
-  # the B1/B2 arms, so the two stages stay comparable. Must not exceed
-  # horizon.max_loan_age_months.
-  binary_horizon_months: 36
-
-  # Points in the approval-rate sweep. 200 puts a grid point every 0.5% of the book,
-  # which is finer than the curve's curvature anywhere it matters.
-  sweep_points: 200
-
-  # Statistical cutoffs are chosen on the IN-TIME HOLDOUT, never on the test set.
-  # Picking a threshold by maximising accuracy on the same data used to report its
-  # realised profit would be choosing the answer and then reporting it -- and the
-  # accuracy-maximising threshold is exactly the kind of quantity that looks innocuous
-  # while leaking. The holdout is the only sample that is both unseen by the fit and
-  # available at the decision point.
-  #
-  # Set false to reproduce the leaked version and see how much it flatters.
-  choose_thresholds_on_holdout: true
