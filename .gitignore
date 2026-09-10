@@ -1,6 +1,14 @@
 # Freddie Mac data — licensed for use, never for redistribution.
-/data/
+#
+# Note `/data/*` and not `/data/`. Git cannot re-include anything whose PARENT DIRECTORY
+# is excluded, so excluding the directory itself would make the negation below silently
+# ineffective — which is exactly what happened on the first attempt.
+/data/*
 !/data/.gitkeep
+# The one deliberate exception: FRED Treasury series are US federal government work and
+# in the public domain, so the benchmark yields behind the discount rate ARE committed.
+# That makes the pipeline reproducible with no network and no Clarity account.
+!/data/benchmark/
 /docs/freddie-mac/
 *.zip
 *.xlsx
@@ -15,6 +23,10 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+
+# Editor and local history — machine-local, never shared
+.vscode/
+.history/
 
 # OS
 .DS_Store
